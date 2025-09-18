@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  s3-garbage-collector:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: gc
+    environment:
+      # AWS Credentials (obrigatório)
+      KEY: ${AWS_ACCESS_KEY_ID}
+      SECRET: ${AWS_SECRET_ACCESS_KEY}
+      REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+      
+      # S3 Configuration (obrigatório)
+      BUCKET: ${S3_BUCKET_NAME}
+      BUCKET_PATH: ${S3_BUCKET_PATH:-/}
+      
+      # Garbage Collection Settings
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
+      DRY_RUN: ${DRY_RUN:-false}
+      VERBOSE: ${VERBOSE:-true}
+    
+    # Remove o container após a execução
+    restart: "no"
+    
+    # Labels para documentação
+    labels:
+      - "description=AWS S3 Garbage Collector - Execução única"
+      - "version=1.0.0"
