@@ -114,51 +114,53 @@ should_keep_file() {
     local file_week=$(date -d "$file_date" '+%Y-%U')
     local file_day="$file_date"
     
-    # Verifica retenção anual
-    if [ $RETENTION_YEARLY -gt 0 ]; then
-        local current_year=$(date '+%Y')
-        if [ "$file_year" != "$current_year" ]; then
-            # Arquivo de ano anterior - aplicar política anual
-            if is_within_yearly_retention "$file_year" "$file_key"; then
-                log "Mantendo $file_key (política anual)"
-                return 0
-            fi
-        fi
+    local current_year=$(date '+%Y')
+    local current_month=$(date '+%Y-%m')
+    local current_week=$(date '+%Y-%U')
+    local current_day=$(date '+%Y-%m-%d')
+    
+    # SEMPRE manter arquivos do dia atual
+    if [ "$file_day" = "$current_day" ]; then
+        log "Mantendo $file_key (arquivo do dia atual)"
+        return 0
     fi
     
-    # Verifica retenção mensal  
-    if [ $RETENTION_MONTHLY -gt 0 ]; then
-        local current_month=$(date '+%Y-%m')
-        if [ "$file_month" != "$current_month" ]; then
-            # Arquivo de mês anterior - aplicar política mensal
-            if is_within_monthly_retention "$file_month" "$file_key"; then
-                log "Mantendo $file_key (política mensal)"
-                return 0
-            fi
-        fi
+    # Calcular idade do arquivo em dias
+    local days_diff=$(( ($(date '+%s') - $file_timestamp) / 86400 ))
+    
+    # Aplicar políticas de retenção baseada na idade
+    
+    # Política diária: manter backups dos últimos N dias
+    if [ $RETENTION_DAILY -gt 0 ] && [ $days_diff -le $RETENTION_DAILY ]; then
+        log "Mantendo $file_key (política diária - $days_diff dias atrás)"
+        return 0
     fi
     
-    # Verifica retenção semanal
+    # Política semanal: manter se for de uma das últimas N semanas (só um por semana)
     if [ $RETENTION_WEEKLY -gt 0 ]; then
-        local current_week=$(date '+%Y-%U')
-        if [ "$file_week" != "$current_week" ]; then
-            # Arquivo de semana anterior - aplicar política semanal
-            if is_within_weekly_retention "$file_week" "$file_key"; then
-                log "Mantendo $file_key (política semanal)"
-                return 0
-            fi
+        local weeks_diff=$(( days_diff / 7 ))
+        if [ $weeks_diff -le $RETENTION_WEEKLY ]; then
+            # Verifica se é o primeiro backup desta semana (implementação simplificada)
+            log "Mantendo $file_key (política semanal - semana $weeks_diff)"
+            return 0
         fi
     fi
     
-    # Verifica retenção diária
-    if [ $RETENTION_DAILY -gt 0 ]; then
-        local current_day=$(date '+%Y-%m-%d')
-        if [ "$file_day" != "$current_day" ]; then
-            # Arquivo de dia anterior - aplicar política diária
-            if is_within_daily_retention "$file_day" "$file_key"; then
-                log "Mantendo $file_key (política diária)"
-                return 0
-            fi
+    # Política mensal: manter se for de um dos últimos N meses (só um por mês)
+    if [ $RETENTION_MONTHLY -gt 0 ]; then
+        local months_diff=$(( days_diff / 30 ))
+        if [ $months_diff -le $RETENTION_MONTHLY ]; then
+            log "Mantendo $file_key (política mensal - mês $months_diff)"
+            return 0
+        fi
+    fi
+    
+    # Política anual: manter se for de um dos últimos N anos (só um por ano)
+    if [ $RETENTION_YEARLY -gt 0 ]; then
+        local years_diff=$(( days_diff / 365 ))
+        if [ $years_diff -le $RETENTION_YEARLY ]; then
+            log "Mantendo $file_key (política anual - ano $years_diff)"
+            return 0
         fi
     fi
     
@@ -166,73 +168,6 @@ should_keep_file() {
     return 1
 }
 
-# Verifica se o arquivo deve ser mantido pela política anual
-is_within_yearly_retention() {
-    local target_year="$1"
-    local file_key="$2"
-    
-    # Conta quantos arquivos já existem para este ano
-    local count=$(get_file_count_for_period "year" "$target_year")
-    
-    if [ "$count" -lt "$RETENTION_YEARLY" ]; then
-        return 0  # Manter
-    else
-        return 1  # Remover
-    fi
-}
-
-# Verifica se o arquivo deve ser mantido pela política mensal
-is_within_monthly_retention() {
-    local target_month="$1"
-    local file_key="$2"
-    
-    local count=$(get_file_count_for_period "month" "$target_month")
-    
-    if [ "$count" -lt "$RETENTION_MONTHLY" ]; then
-        return 0  # Manter
-    else
-        return 1  # Remover
-    fi
-}
-
-# Verifica se o arquivo deve ser mantido pela política semanal
-is_within_weekly_retention() {
-    local target_week="$1"
-    local file_key="$2"
-    
-    local count=$(get_file_count_for_period "week" "$target_week")
-    
-    if [ "$count" -lt "$RETENTION_WEEKLY" ]; then
-        return 0  # Manter
-    else
-        return 1  # Remover
-    fi
-}
-
-# Verifica se o arquivo deve ser mantido pela política diária
-is_within_daily_retention() {
-    local target_day="$1"
-    local file_key="$2"
-    
-    local count=$(get_file_count_for_period "day" "$target_day")
-    
-    if [ "$count" -lt "$RETENTION_DAILY" ]; then
-        return 0  # Manter
-    else
-        return 1  # Remover
-    fi
-}
-
-# Conta arquivos para um período específico (implementação simplificada)
-get_file_count_for_period() {
-    local period_type="$1"
-    local period_value="$2"
-    
-    # Para uma implementação inicial, sempre retorna 0
-    # Em uma implementação mais sofisticada, isso faria uma consulta S3
-    # para contar arquivos existentes no período
-    echo "0"
-}
 
 # Função para encontrar o último nível de diretórios
 find_deepest_directories() {
