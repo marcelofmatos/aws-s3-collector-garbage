@@ -1,5 +1,12 @@
 # AWS S3 Garbage Collector
 
+![CI](https://github.com/marcelofmatos/aws-s3-collector-garbage/workflows/CI%20-%20Build%20and%20Test/badge.svg)
+![Release](https://github.com/marcelofmatos/aws-s3-collector-garbage/workflows/Release%20-%20Build%20and%20Publish/badge.svg)
+![Main](https://github.com/marcelofmatos/aws-s3-collector-garbage/workflows/Main%20-%20Build%20and%20Publish%20Latest/badge.svg)
+[![Docker](https://ghcr-badge.egpl.dev/marcelofmatos/aws-s3-collector-garbage/latest_tag?trim=major&label=latest)](https://github.com/marcelofmatos/aws-s3-collector-garbage/pkgs/container/aws-s3-collector-garbage)
+[![License](https://img.shields.io/github/license/marcelofmatos/aws-s3-collector-garbage)](LICENSE)
+[![GitHub release](https://img.shields.io/github/v/release/marcelofmatos/aws-s3-collector-garbage)](https://github.com/marcelofmatos/aws-s3-collector-garbage/releases)
+
 Um container Docker baseado na imagem [futurevision/aws-s3-sync](https://hub.docker.com/r/futurevision/aws-s3-sync) que adiciona funcionalidade de garbage collection para limpar automaticamente backups antigos no Amazon S3.
 
 ## 📋 Funcionalidades
@@ -22,15 +29,32 @@ aws-s3-collector-garbage/
 ├── scripts/
 │   ├── garbage-collector.sh    # Script principal de limpeza
 │   └── start.sh               # Script de inicialização estendido
-└── examples/
-    ├── docker-compose-one-shot.yml  # Execução única
-    ├── docker-compose-cron.yml      # Execução periódica
-    └── .env.example                  # Exemplo de variáveis
+├── examples/
+│   ├── docker-compose-one-shot.yml  # Execução única
+│   ├── docker-compose-cron.yml      # Execução periódica
+│   └── .env.example                  # Exemplo de variáveis
+└── .github/
+    ├── workflows/              # GitHub Actions
+    ├── ISSUE_TEMPLATE/         # Templates para issues
+    └── pull_request_template.md # Template para PRs
 ```
 
 ## 🚀 Como Usar
 
-### 1. Clone e Build
+### 1. Pull da Imagem Pré-construída (Recomendado)
+
+```bash
+# Pull da imagem do GitHub Container Registry
+docker pull ghcr.io/marcelofmatos/aws-s3-collector-garbage:latest
+
+# Alias para uso mais fácil
+docker tag ghcr.io/marcelofmatos/aws-s3-collector-garbage:latest aws-s3-gc
+
+# Teste a imagem
+docker run --rm aws-s3-gc help
+```
+
+### 2. Build Local (Alternativo)
 
 ```bash
 # Clone o repositório
@@ -44,7 +68,7 @@ cd aws-s3-collector-garbage
 docker build -t aws-s3-gc .
 ```
 
-### 2. Variáveis de Ambiente
+### 3. Variáveis de Ambiente
 
 | Variável | Obrigatório | Padrão | Descrição |
 |----------|-------------|--------|-----------|
@@ -58,7 +82,7 @@ docker build -t aws-s3-gc .
 | `DRY_RUN` | ❌ | `false` | Modo simulação (true/false) |
 | `VERBOSE` | ❌ | `true` | Log detalhado (true/false) |
 
-### 3. Modos de Execução
+### 4. Modos de Execução
 
 #### 🔧 Sincronização (Compatibilidade)
 ```bash
@@ -69,7 +93,7 @@ docker run --rm \
   -e REGION=us-east-1 \
   -e BUCKET=my-bucket \
   -v /local/data:/data \
-  aws-s3-gc sync
+  ghcr.io/marcelofmatos/aws-s3-collector-garbage:latest sync
 ```
 
 #### 🗑️ Garbage Collection - Execução Única
@@ -82,7 +106,7 @@ docker run --rm \
   -e BUCKET=my-backup-bucket \
   -e BUCKET_PATH=/backups \
   -e BACKUP_RETENTION_DAYS=7 \
-  aws-s3-gc gc
+  ghcr.io/marcelofmatos/aws-s3-collector-garbage:latest gc
 ```
 
 #### 🕐 Garbage Collection - Modo Dry-Run
@@ -94,7 +118,7 @@ docker run --rm \
   -e REGION=us-east-1 \
   -e BUCKET=my-backup-bucket \
   -e DRY_RUN=true \
-  aws-s3-gc gc
+  ghcr.io/marcelofmatos/aws-s3-collector-garbage:latest gc
 ```
 
 #### ⏰ Garbage Collection - Execução Agendada
@@ -107,10 +131,10 @@ docker run -d \
   -e BUCKET=my-backup-bucket \
   -e CRON_SCHEDULE="0 3 * * *" \
   --name s3-gc \
-  aws-s3-gc gc
+  ghcr.io/marcelofmatos/aws-s3-collector-garbage:latest gc
 ```
 
-### 4. Docker Compose
+### 5. Docker Compose
 
 #### Execução Única
 ```bash
@@ -128,7 +152,41 @@ cp .env.example .env
 docker-compose -f docker-compose-cron.yml up -d
 ```
 
-## 🎯 Como Funciona o Garbage Collection
+## 🚀 CI/CD e Container Registry
+
+Este projeto utiliza GitHub Actions para automatizar o build e publicação das imagens Docker.
+
+### 📏 Workflows Disponíveis
+
+| Workflow | Trigger | Finalidade |
+|----------|---------|------------|
+| **CI** | Push/PR | Build e teste da imagem |
+| **Main** | Push para main | Publica imagem `latest` |
+| **Release** | Tags/Releases | Publica versões tagged |
+
+### 📦 GitHub Container Registry
+
+As imagens são publicadas automaticamente no GitHub Container Registry:
+
+```bash
+# Imagens disponíveis:
+ghcr.io/marcelofmatos/aws-s3-collector-garbage:latest  # Última versão
+ghcr.io/marcelofmatos/aws-s3-collector-garbage:main    # Branch main
+ghcr.io/marcelofmatos/aws-s3-collector-garbage:v1.0.0  # Versões específicas
+```
+
+### ⚙️ Plataformas Suportadas
+
+- **linux/amd64** - Arquitetura Intel/AMD 64-bit
+- **linux/arm64** - Arquitetura ARM 64-bit (Apple Silicon, Raspberry Pi, etc.)
+
+### 🔒 Segurança
+
+- Scan automático de vulnerabilidades com Trivy
+- Imagens assinadas e verificadas
+- Build reproduzível com cache otimizado
+
+## 🎅 Como Funciona o Garbage Collection
 
 O script de garbage collection opera especificamente no **segundo nível de diretórios** conforme solicitado:
 
@@ -233,9 +291,9 @@ Este projeto mantém compatibilidade com a imagem base `futurevision/aws-s3-sync
 ## 🤝 Contribuições
 
 Contribuições são bem-vindas! Sinta-se à vontade para:
-- Reportar bugs
+- Reportar bugs usando os [templates de issue](https://github.com/marcelofmatos/aws-s3-collector-garbage/issues/new/choose)
 - Sugerir melhorias
-- Enviar pull requests
+- Enviar pull requests seguindo o [template de PR](https://github.com/marcelofmatos/aws-s3-collector-garbage/compare)
 
 ---
 
