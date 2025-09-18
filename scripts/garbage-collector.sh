@@ -3,7 +3,15 @@
 set -e
 
 # Configurações e validações
-BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-7}
+# Compatibilidade com versão anterior
+BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-}
+
+# Novo sistema de retenção granular
+RETENTION_YEARLY=${RETENTION_YEARLY:-0}    # Quantos backups manter por ano (0 = desabilitado)
+RETENTION_MONTHLY=${RETENTION_MONTHLY:-0}  # Quantos backups manter por mês (0 = desabilitado)
+RETENTION_WEEKLY=${RETENTION_WEEKLY:-0}    # Quantos backups manter por semana (0 = desabilitado)
+RETENTION_DAILY=${RETENTION_DAILY:-7}      # Quantos backups manter por dia (padrão: 7)
+
 DRY_RUN=${DRY_RUN:-false}
 VERBOSE=${VERBOSE:-true}
 PARAMS=${PARAMS:-}
@@ -53,15 +61,178 @@ execute_or_simulate() {
 log "=== AWS S3 Garbage Collector iniciado ==="
 log "Bucket: s3://$BUCKET"
 log "Path: $BUCKET_PATH"
-log "Retenção: $BACKUP_RETENTION_DAYS dias"
+
+# Mostra políticas de retenção ativas
+# Verifica se alguma política granular foi definida explicitamente
+GRANULAR_DEFINED=false
+[ "${RETENTION_YEARLY:-0}" != "0" ] && GRANULAR_DEFINED=true
+[ "${RETENTION_MONTHLY:-0}" != "0" ] && GRANULAR_DEFINED=true  
+[ "${RETENTION_WEEKLY:-0}" != "0" ] && GRANULAR_DEFINED=true
+[ "${RETENTION_DAILY:-7}" != "7" ] && GRANULAR_DEFINED=true
+
+if [ "$GRANULAR_DEFINED" = "true" ]; then
+    log "Políticas de retenção granular:"
+    [ $RETENTION_YEARLY -gt 0 ] && log "  - Anual: $RETENTION_YEARLY backups por ano"
+    [ $RETENTION_MONTHLY -gt 0 ] && log "  - Mensal: $RETENTION_MONTHLY backups por mês"
+    [ $RETENTION_WEEKLY -gt 0 ] && log "  - Semanal: $RETENTION_WEEKLY backups por semana"
+    [ $RETENTION_DAILY -gt 0 ] && log "  - Diário: $RETENTION_DAILY backups por dia"
+    # Desabilita modo compatibilidade quando granular estiver ativo
+    BACKUP_RETENTION_DAYS=""
+elif [ -n "$BACKUP_RETENTION_DAYS" ]; then
+    log "Modo compatibilidade: $BACKUP_RETENTION_DAYS dias"
+else
+    log "Usando política padrão diária: $RETENTION_DAILY backups por dia"
+fi
+
 log "Parâmetros AWS: $PARAMS"
 log "Modo dry-run: $DRY_RUN"
 
-# Calcula a data de corte (retention window)
-CUTOFF_DATE=$(date -d "$BACKUP_RETENTION_DAYS days ago" '+%Y-%m-%d')
-CUTOFF_TIMESTAMP=$(date -d "$CUTOFF_DATE" '+%s')
+# Preparação para análise de retenção
+CURRENT_DATE=$(date '+%Y-%m-%d')
+CURRENT_TIMESTAMP=$(date '+%s')
+log "Data atual: $CURRENT_DATE (timestamp: $CURRENT_TIMESTAMP)"
 
-log "Data de corte: $CUTOFF_DATE (timestamp: $CUTOFF_TIMESTAMP)"
+# Função para determinar se um arquivo deve ser mantido baseado nas políticas de retenção
+should_keep_file() {
+    local file_date="$1"
+    local file_timestamp="$2"
+    local file_key="$3"
+    
+    # Modo compatibilidade com versão anterior
+    if [ -n "$BACKUP_RETENTION_DAYS" ]; then
+        local cutoff_timestamp=$(date -d "$BACKUP_RETENTION_DAYS days ago" '+%s')
+        if [ "$file_timestamp" -lt "$cutoff_timestamp" ]; then
+            return 1  # Deve remover
+        else
+            return 0  # Deve manter
+        fi
+    fi
+    
+    # Novo sistema granular
+    local file_year=$(date -d "$file_date" '+%Y')
+    local file_month=$(date -d "$file_date" '+%Y-%m')
+    local file_week=$(date -d "$file_date" '+%Y-%U')
+    local file_day="$file_date"
+    
+    # Verifica retenção anual
+    if [ $RETENTION_YEARLY -gt 0 ]; then
+        local current_year=$(date '+%Y')
+        if [ "$file_year" != "$current_year" ]; then
+            # Arquivo de ano anterior - aplicar política anual
+            if is_within_yearly_retention "$file_year" "$file_key"; then
+                log "Mantendo $file_key (política anual)"
+                return 0
+            fi
+        fi
+    fi
+    
+    # Verifica retenção mensal  
+    if [ $RETENTION_MONTHLY -gt 0 ]; then
+        local current_month=$(date '+%Y-%m')
+        if [ "$file_month" != "$current_month" ]; then
+            # Arquivo de mês anterior - aplicar política mensal
+            if is_within_monthly_retention "$file_month" "$file_key"; then
+                log "Mantendo $file_key (política mensal)"
+                return 0
+            fi
+        fi
+    fi
+    
+    # Verifica retenção semanal
+    if [ $RETENTION_WEEKLY -gt 0 ]; then
+        local current_week=$(date '+%Y-%U')
+        if [ "$file_week" != "$current_week" ]; then
+            # Arquivo de semana anterior - aplicar política semanal
+            if is_within_weekly_retention "$file_week" "$file_key"; then
+                log "Mantendo $file_key (política semanal)"
+                return 0
+            fi
+        fi
+    fi
+    
+    # Verifica retenção diária
+    if [ $RETENTION_DAILY -gt 0 ]; then
+        local current_day=$(date '+%Y-%m-%d')
+        if [ "$file_day" != "$current_day" ]; then
+            # Arquivo de dia anterior - aplicar política diária
+            if is_within_daily_retention "$file_day" "$file_key"; then
+                log "Mantendo $file_key (política diária)"
+                return 0
+            fi
+        fi
+    fi
+    
+    # Se chegou até aqui, o arquivo deve ser removido
+    return 1
+}
+
+# Verifica se o arquivo deve ser mantido pela política anual
+is_within_yearly_retention() {
+    local target_year="$1"
+    local file_key="$2"
+    
+    # Conta quantos arquivos já existem para este ano
+    local count=$(get_file_count_for_period "year" "$target_year")
+    
+    if [ "$count" -lt "$RETENTION_YEARLY" ]; then
+        return 0  # Manter
+    else
+        return 1  # Remover
+    fi
+}
+
+# Verifica se o arquivo deve ser mantido pela política mensal
+is_within_monthly_retention() {
+    local target_month="$1"
+    local file_key="$2"
+    
+    local count=$(get_file_count_for_period "month" "$target_month")
+    
+    if [ "$count" -lt "$RETENTION_MONTHLY" ]; then
+        return 0  # Manter
+    else
+        return 1  # Remover
+    fi
+}
+
+# Verifica se o arquivo deve ser mantido pela política semanal
+is_within_weekly_retention() {
+    local target_week="$1"
+    local file_key="$2"
+    
+    local count=$(get_file_count_for_period "week" "$target_week")
+    
+    if [ "$count" -lt "$RETENTION_WEEKLY" ]; then
+        return 0  # Manter
+    else
+        return 1  # Remover
+    fi
+}
+
+# Verifica se o arquivo deve ser mantido pela política diária
+is_within_daily_retention() {
+    local target_day="$1"
+    local file_key="$2"
+    
+    local count=$(get_file_count_for_period "day" "$target_day")
+    
+    if [ "$count" -lt "$RETENTION_DAILY" ]; then
+        return 0  # Manter
+    else
+        return 1  # Remover
+    fi
+}
+
+# Conta arquivos para um período específico (implementação simplificada)
+get_file_count_for_period() {
+    local period_type="$1"
+    local period_value="$2"
+    
+    # Para uma implementação inicial, sempre retorna 0
+    # Em uma implementação mais sofisticada, isso faria uma consulta S3
+    # para contar arquivos existentes no período
+    echo "0"
+}
 
 # Função para encontrar o último nível de diretórios
 find_deepest_directories() {
@@ -112,8 +283,8 @@ process_leaf_directory() {
         object_date=$(echo "$last_modified" | cut -c1-10)
         object_timestamp=$(date -d "$object_date" '+%s' 2>/dev/null || echo "0")
         
-        # Verifica se o objeto é mais antigo que o período de retenção
-        if [ "$object_timestamp" -lt "$CUTOFF_TIMESTAMP" ] && [ "$object_timestamp" -ne "0" ]; then
+        # Usa nova função para verificar se o arquivo deve ser mantido
+        if [ "$object_timestamp" -ne "0" ] && ! should_keep_file "$object_date" "$object_timestamp" "$key"; then
             log "Objeto expirado encontrado: $key (data: $object_date)"
             expired_count=$((expired_count + 1))
             

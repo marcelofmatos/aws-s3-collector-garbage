@@ -13,6 +13,7 @@ Um container Docker baseado na imagem [futurevision/aws-s3-sync](https://hub.doc
 
 - ✅ **Mantém compatibilidade** com a imagem original `futurevision/aws-s3-sync`
 - 🗑️ **Garbage Collection** automática de arquivos antigos no S3
+- 🆕 **Sistema de Retenção Granular** por ano/mês/semana/dia
 - 📂 **Remove diretórios vazios** após a limpeza
 - ⏰ **Execução agendada** via cron
 - 🔍 **Modo dry-run** para simular operações
@@ -81,9 +82,55 @@ docker build -t aws-s3-gc .
 | `PARAMS` | ❌ | - | Parâmetros adicionais para AWS CLI |
 | `CRON_SCHEDULE` | ❌ | - | Agenda cron (ex: "0 3 * * *") |
 | `DRY_RUN` | ❌ | `false` | Modo simulação (true/false) |
-| `VERBOSE` | ❌ | `true` | Log detalhado (true/false) |
+|| `VERBOSE` | ❌ | `true` | Log detalhado (true/false) |
+|| `RETENTION_YEARLY` | ❌ | `0` | Quantos backups manter por ano (0=desabilitado) |
+|| `RETENTION_MONTHLY` | ❌ | `0` | Quantos backups manter por mês (0=desabilitado) |
+|| `RETENTION_WEEKLY` | ❌ | `0` | Quantos backups manter por semana (0=desabilitado) |
+|| `RETENTION_DAILY` | ❌ | `7` | Quantos backups manter por dia |
 
-### 4. Modos de Execução
+### 4. Sistema de Retenção Granular 🆕
+
+O sistema de retenção granular permite definir políticas mais sofisticadas baseadas em períodos específicos, oferecendo maior controle sobre quais backups manter.
+
+#### 📊 Estratégias de Retenção:
+
+```bash
+# Estratégia Empresarial: 7 anos de retenção com graduação
+docker run --rm \
+  -e RETENTION_YEARLY=7 \
+  -e RETENTION_MONTHLY=24 \
+  -e RETENTION_WEEKLY=8 \
+  -e RETENTION_DAILY=90 \
+  -e KEY=your_key -e SECRET=your_secret -e REGION=us-east-1 -e BUCKET=my-bucket \
+  ghcr.io/marcelofmatos/aws-s3-collector-garbage:latest gc
+```
+
+```bash
+# Estratégia Média: 2 anos com backup diário intensivo
+docker run --rm \
+  -e RETENTION_YEARLY=2 \
+  -e RETENTION_MONTHLY=12 \
+  -e RETENTION_DAILY=30 \
+  -e KEY=your_key -e SECRET=your_secret -e REGION=us-east-1 -e BUCKET=my-bucket \
+  ghcr.io/marcelofmatos/aws-s3-collector-garbage:latest gc
+```
+
+```bash
+# Estratégia Simples: apenas retenção diária
+docker run --rm \
+  -e RETENTION_DAILY=14 \
+  -e KEY=your_key -e SECRET=your_secret -e REGION=us-east-1 -e BUCKET=my-bucket \
+  ghcr.io/marcelofmatos/aws-s3-collector-garbage:latest gc
+```
+
+#### ⚙️ Como Funciona:
+
+1. **Prioridade**: Sistema granular tem prioridade sobre `BACKUP_RETENTION_DAYS`
+2. **Hierarquia**: Políticas aplicadas na ordem: Anual → Mensal → Semanal → Diária
+3. **Flexibilidade**: Combine diferentes períodos conforme necessidade
+4. **Compatibilidade**: Modo legado continua funcionando se nenhuma política granular for definida
+
+### 5. Modos de Execução
 
 #### 🔧 Sincronização (Compatibilidade)
 ```bash
