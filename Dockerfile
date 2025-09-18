@@ -4,6 +4,9 @@ FROM futurevision/aws-s3-sync:latest
 ARG BACKUP_RETENTION_DAYS=7
 ENV BACKUP_RETENTION_DAYS=$BACKUP_RETENTION_DAYS
 
+# Variável para parâmetros adicionais do AWS CLI (compatibilidade com imagem original)
+ENV PARAMS=
+
 # Instalação de ferramentas adicionais necessárias para o garbage collector
 # Separando em comandos menores para melhor compatibilidade multi-plataforma
 RUN apk add --no-cache coreutils findutils
