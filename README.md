@@ -78,15 +78,15 @@ docker build -t aws-s3-gc .
 | `REGION` | ✅ | - | AWS Region (ex: us-east-1) |
 | `BUCKET` | ✅ | - | Nome do bucket S3 |
 | `BUCKET_PATH` | ❌ | `/` | Caminho dentro do bucket |
-| `BACKUP_RETENTION_DAYS` | ❌ | `7` | Dias de retenção dos backups |
+| `BACKUP_RETENTION_DAYS` | ❌ | `7` | Dias de retenção dos backups (modo legado) |
 | `PARAMS` | ❌ | - | Parâmetros adicionais para AWS CLI |
 | `CRON_SCHEDULE` | ❌ | - | Agenda cron (ex: "0 3 * * *") |
 | `DRY_RUN` | ❌ | `false` | Modo simulação (true/false) |
-|| `VERBOSE` | ❌ | `true` | Log detalhado (true/false) |
-|| `RETENTION_YEARLY` | ❌ | `0` | Quantos backups manter por ano (0=desabilitado) |
-|| `RETENTION_MONTHLY` | ❌ | `0` | Quantos backups manter por mês (0=desabilitado) |
-|| `RETENTION_WEEKLY` | ❌ | `0` | Quantos backups manter por semana (0=desabilitado) |
-|| `RETENTION_DAILY` | ❌ | `7` | Quantos backups manter por dia |
+| `VERBOSE` | ❌ | `true` | Log detalhado (true/false) |
+| `RETENTION_YEARLY` | ❌ | `0` | Quantos backups manter por ano (0=desabilitado) |
+| `RETENTION_MONTHLY` | ❌ | `0` | Quantos backups manter por mês (0=desabilitado) |
+| `RETENTION_WEEKLY` | ❌ | `0` | Quantos backups manter por semana (0=desabilitado) |
+| `RETENTION_DAILY` | ❌ | `7` | Quantos backups manter por dia |
 
 ### 4. Sistema de Retenção Granular 🆕
 
