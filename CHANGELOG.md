@@ -5,6 +5,32 @@ Todos os mudanças notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [2.0.0] - 2024-09-18
+
+### 🧠 BREAKING CHANGE: Algoritmo Inteligente
+- **NOVA LÓGICA**: Remove processamento fixo de segundo nível
+- **ALGORITMO INTELIGENTE**: Descoberta recursiva do último nível de diretórios
+- **PROCESSAMENTO OTIMIZADO**: Processa apenas diretórios que realmente contêm arquivos (folhas)
+- **REMOÇÃO SEGURA**: Remove apenas diretórios do último nível que ficaram vazios
+
+### Suporte a Estruturas Flexíveis
+- ✅ **Estrutura Simples**: `bucket/app/files.txt`
+- ✅ **Estrutura Complexa**: `bucket/app/year/month/day/files.txt`
+- ✅ **Estrutura Mista**: Diferentes profundidades no mesmo bucket
+- ✅ **Qualquer Profundidade**: O algoritmo detecta automaticamente o último nível
+
+### Melhorias
+- 📊 **Logs aprimorados** com informações de descoberta da estrutura
+- 🚀 **Performance otimizada** para estruturas complexas
+- 🎯 **Processamento preciso** apenas onde há arquivos reais
+- 📝 **Documentação expandida** com exemplos de estruturas suportadas
+
+### Por que esta mudança?
+O algoritmo anterior processava apenas o segundo nível, o que era limitante para:
+- Estruturas de backup mais complexas
+- Diferentes convenções de organização
+- Cenários onde arquivos estão em diferentes profundidades
+
 ## [1.1.0] - 2024-09-18
 
 ### Adicionado
