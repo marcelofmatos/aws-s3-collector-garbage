@@ -86,7 +86,7 @@ docker build -t aws-s3-gc .
 | `RETENTION_YEARLY` | ❌ | `0` | Quantos backups manter por ano (0=desabilitado) |
 | `RETENTION_MONTHLY` | ❌ | `0` | Quantos backups manter por mês (0=desabilitado) |
 | `RETENTION_WEEKLY` | ❌ | `0` | Quantos backups manter por semana (0=desabilitado) |
-| `RETENTION_DAILY` | ❌ | `7` | Quantos backups manter por dia |
+| `RETENTION_DAILY` | ❌ | `1` | Quantos backups manter por dia |
 
 ### 4. Sistema de Retenção Granular 🆕
 

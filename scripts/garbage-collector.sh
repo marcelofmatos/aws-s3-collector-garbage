@@ -10,7 +10,7 @@ BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-}
 RETENTION_YEARLY=${RETENTION_YEARLY:-0}    # Quantos backups manter por ano (0 = desabilitado)
 RETENTION_MONTHLY=${RETENTION_MONTHLY:-0}  # Quantos backups manter por mês (0 = desabilitado)
 RETENTION_WEEKLY=${RETENTION_WEEKLY:-0}    # Quantos backups manter por semana (0 = desabilitado)
-RETENTION_DAILY=${RETENTION_DAILY:-7}      # Quantos backups manter por dia (padrão: 7)
+RETENTION_DAILY=${RETENTION_DAILY:-1}      # Quantos backups manter por dia (padrão: 1)
 
 DRY_RUN=${DRY_RUN:-false}
 VERBOSE=${VERBOSE:-true}
@@ -68,7 +68,7 @@ GRANULAR_DEFINED=false
 [ "${RETENTION_YEARLY:-0}" != "0" ] && GRANULAR_DEFINED=true
 [ "${RETENTION_MONTHLY:-0}" != "0" ] && GRANULAR_DEFINED=true  
 [ "${RETENTION_WEEKLY:-0}" != "0" ] && GRANULAR_DEFINED=true
-[ "${RETENTION_DAILY:-7}" != "7" ] && GRANULAR_DEFINED=true
+[ "${RETENTION_DAILY:-1}" != "1" ] && GRANULAR_DEFINED=true
 
 if [ "$GRANULAR_DEFINED" = "true" ]; then
     log "Políticas de retenção granular:"
@@ -81,7 +81,7 @@ if [ "$GRANULAR_DEFINED" = "true" ]; then
 elif [ -n "$BACKUP_RETENTION_DAYS" ]; then
     log "Modo compatibilidade: $BACKUP_RETENTION_DAYS dias"
 else
-    log "Usando política padrão diária: $RETENTION_DAILY backups por dia"
+    log "Usando política padrão diária: $RETENTION_DAILY backup por dia"
 fi
 
 log "Parâmetros AWS: $PARAMS"
