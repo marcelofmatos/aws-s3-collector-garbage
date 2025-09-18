@@ -178,7 +178,7 @@ ghcr.io/marcelofmatos/aws-s3-collector-garbage:v1.0.0  # Versões específicas
 ### ⚙️ Plataformas Suportadas
 
 - **linux/amd64** - Arquitetura Intel/AMD 64-bit
-- **linux/arm64** - Arquitetura ARM 64-bit (Apple Silicon, Raspberry Pi, etc.)
+- **linux/arm64** - Arquitetura ARM 64-bit (em desenvolvimento)
 
 ### 🔒 Segurança
 

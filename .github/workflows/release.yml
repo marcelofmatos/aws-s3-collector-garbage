@@ -61,7 +61,7 @@ jobs:
       uses: docker/build-push-action@v5
       with:
         context: .
-        platforms: linux/amd64,linux/arm64
+        platforms: linux/amd64
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
@@ -97,7 +97,7 @@ jobs:
         echo '```' >> release_notes.md
         echo "" >> release_notes.md
         echo "### 📊 Image Info" >> release_notes.md
-        echo "- **Plataformas**: linux/amd64, linux/arm64" >> release_notes.md
+        echo "- **Plataformas**: linux/amd64" >> release_notes.md
         echo "- **Base**: futurevision/aws-s3-sync:latest" >> release_notes.md
         echo "- **Tamanho**: $(docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }} --format='{{.Size}}' | numfmt --to=iec-i --suffix=B --format="%.1f" 2>/dev/null || echo 'N/A')" >> release_notes.md
         
@@ -139,7 +139,7 @@ jobs:
         echo "| Tag | Registry | Platforms |" >> $GITHUB_STEP_SUMMARY
         echo "|-----|----------|-----------|" >> $GITHUB_STEP_SUMMARY
         for tag in $(echo '${{ steps.meta.outputs.tags }}' | tr ',' '\n'); do
-          echo "| \`${tag#*:}\` | [${tag}](https://github.com/${{ github.repository }}/pkgs/container/aws-s3-collector-garbage) | linux/amd64, linux/arm64 |" >> $GITHUB_STEP_SUMMARY
+          echo "| \`${tag#*:}\` | [${tag}](https://github.com/${{ github.repository }}/pkgs/container/aws-s3-collector-garbage) | linux/amd64 |" >> $GITHUB_STEP_SUMMARY
         done
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 🚀 Quick Start:" >> $GITHUB_STEP_SUMMARY
