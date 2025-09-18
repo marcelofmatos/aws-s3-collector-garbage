@@ -6,6 +6,7 @@ set -e
 BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-7}
 DRY_RUN=${DRY_RUN:-false}
 VERBOSE=${VERBOSE:-true}
+PARAMS=${PARAMS:-}
 
 # Configuração do AWS
 export AWS_ACCESS_KEY_ID="$KEY"
@@ -53,6 +54,7 @@ log "=== AWS S3 Garbage Collector iniciado ==="
 log "Bucket: s3://$BUCKET"
 log "Path: $BUCKET_PATH"
 log "Retenção: $BACKUP_RETENTION_DAYS dias"
+log "Parâmetros AWS: $PARAMS"
 log "Modo dry-run: $DRY_RUN"
 
 # Calcula a data de corte (retention window)
@@ -71,7 +73,7 @@ process_directory() {
     log "Processando diretório: $dir_prefix"
     
     # Lista todos os objetos no diretório específico
-    aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$dir_prefix" --output text --query 'Contents[*].[Key,LastModified]' | while IFS=$'\t' read -r key last_modified; do
+    aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$dir_prefix" --output text --query 'Contents[*].[Key,LastModified]' $PARAMS | while IFS=$'\t' read -r key last_modified; do
         if [ -z "$key" ] || [ "$key" = "None" ]; then
             continue
         fi
@@ -94,7 +96,7 @@ process_directory() {
             
             # Remove o objeto (em lotes para eficiência)
             if [ $deleted_count -ge 50 ]; then
-                execute_or_simulate "aws s3 rm s3://$BUCKET/$key"
+                execute_or_simulate "aws s3 rm s3://$BUCKET/$key $PARAMS"
                 objects_to_delete=""
                 deleted_count=0
             fi
@@ -104,15 +106,15 @@ process_directory() {
     # Remove objetos restantes
     if [ -n "$objects_to_delete" ]; then
         for obj in $objects_to_delete; do
-            execute_or_simulate "aws s3 rm s3://$BUCKET/$obj"
+            execute_or_simulate "aws s3 rm s3://$BUCKET/$obj $PARAMS"
         done
     fi
     
     # Verifica se o diretório ficou vazio e o remove se necessário
-    remaining_objects=$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$dir_prefix" --max-items 1 --query 'Contents[0].Key' --output text)
+    remaining_objects=$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$dir_prefix" --max-items 1 --query 'Contents[0].Key' --output text $PARAMS)
     if [ "$remaining_objects" = "None" ] || [ -z "$remaining_objects" ]; then
         log "Diretório vazio detectado: $dir_prefix - removendo"
-        execute_or_simulate "aws s3api delete-object --bucket '$BUCKET' --key '$dir_prefix'"
+        execute_or_simulate "aws s3api delete-object --bucket '$BUCKET' --key '$dir_prefix' $PARAMS"
     fi
 }
 
@@ -127,7 +129,7 @@ else
 fi
 
 # Lista todos os "diretórios" no segundo nível usando delimitador
-aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$search_prefix" --delimiter "/" --query 'CommonPrefixes[*].Prefix' --output text | tr '\t' '\n' | while read -r first_level_prefix; do
+aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$search_prefix" --delimiter "/" --query 'CommonPrefixes[*].Prefix' --output text $PARAMS | tr '\t' '\n' | while read -r first_level_prefix; do
     if [ -z "$first_level_prefix" ] || [ "$first_level_prefix" = "None" ]; then
         continue
     fi
@@ -135,7 +137,7 @@ aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$search_prefix" --delimit
     log "Processando primeiro nível: $first_level_prefix"
     
     # Para cada diretório de primeiro nível, lista os do segundo nível
-    aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$first_level_prefix" --delimiter "/" --query 'CommonPrefixes[*].Prefix' --output text | tr '\t' '\n' | while read -r second_level_prefix; do
+    aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$first_level_prefix" --delimiter "/" --query 'CommonPrefixes[*].Prefix' --output text $PARAMS | tr '\t' '\n' | while read -r second_level_prefix; do
         if [ -z "$second_level_prefix" ] || [ "$second_level_prefix" = "None" ]; then
             continue
         fi

@@ -15,9 +15,11 @@ services:
       # S3 Configuration (obrigatório)
       BUCKET: ${S3_BUCKET_NAME}
       BUCKET_PATH: ${S3_BUCKET_PATH:-/}
+      PARAMS: ${S3BACKUP_PARAMS}
       
       # Garbage Collection Settings
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
+      PARAMS: ${PARAMS:-}
       DRY_RUN: ${DRY_RUN:-false}
       VERBOSE: ${VERBOSE:-true}
       

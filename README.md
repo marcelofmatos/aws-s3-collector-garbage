@@ -78,6 +78,7 @@ docker build -t aws-s3-gc .
 | `BUCKET` | ✅ | - | Nome do bucket S3 |
 | `BUCKET_PATH` | ❌ | `/` | Caminho dentro do bucket |
 | `BACKUP_RETENTION_DAYS` | ❌ | `7` | Dias de retenção dos backups |
+| `PARAMS` | ❌ | - | Parâmetros adicionais para AWS CLI |
 | `CRON_SCHEDULE` | ❌ | - | Agenda cron (ex: "0 3 * * *") |
 | `DRY_RUN` | ❌ | `false` | Modo simulação (true/false) |
 | `VERBOSE` | ❌ | `true` | Log detalhado (true/false) |
@@ -150,6 +151,39 @@ cd examples/
 cp .env.example .env
 # Edite o arquivo .env com suas credenciais
 docker-compose -f docker-compose-cron.yml up -d
+```
+
+### 6. Parâmetros Avançados (PARAMS)
+
+A variável `PARAMS` permite passar parâmetros adicionais para todos os comandos AWS CLI, mantendo total compatibilidade com a imagem original.
+
+#### Exemplos de Uso:
+
+```bash
+# Usar profile específico do AWS
+docker run --rm \
+  -e PARAMS="--profile production" \
+  -e KEY=your_key -e SECRET=your_secret -e REGION=us-east-1 -e BUCKET=my-bucket \
+  ghcr.io/marcelofmatos/aws-s3-collector-garbage:latest gc
+
+# Usar endpoint customizado (ex: S3-compatible storage)
+docker run --rm \
+  -e PARAMS="--endpoint-url https://s3.custom.com" \
+  -e KEY=your_key -e SECRET=your_secret -e REGION=us-east-1 -e BUCKET=my-bucket \
+  ghcr.io/marcelofmatos/aws-s3-collector-garbage:latest gc
+
+# Combinar múltiplos parâmetros
+docker run --rm \
+  -e PARAMS="--profile prod --endpoint-url https://s3.custom.com --cli-read-timeout 30" \
+  -e KEY=your_key -e SECRET=your_secret -e REGION=us-east-1 -e BUCKET=my-bucket \
+  ghcr.io/marcelofmatos/aws-s3-collector-garbage:latest gc
+
+# Para modo sync (compatibilidade total)
+docker run --rm \
+  -e PARAMS="--storage-class STANDARD_IA" \
+  -e KEY=your_key -e SECRET=your_secret -e REGION=us-east-1 -e BUCKET=my-bucket \
+  -v /local/data:/data \
+  ghcr.io/marcelofmatos/aws-s3-collector-garbage:latest sync
 ```
 
 ## 🚀 CI/CD e Container Registry

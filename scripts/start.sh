@@ -28,6 +28,7 @@ Variáveis de ambiente:
     BUCKET                  - Nome do bucket S3 (obrigatório)
     BUCKET_PATH             - Caminho dentro do bucket (padrão: /)
     BACKUP_RETENTION_DAYS   - Dias de retenção para garbage collection (padrão: 7)
+    PARAMS                  - Parâmetros adicionais para comandos AWS CLI (opcional)
     CRON_SCHEDULE           - Agenda cron para execução periódica (opcional)
     DRY_RUN                 - Modo dry-run para garbage collection (padrão: false)
     VERBOSE                 - Log verboso (padrão: true)
