@@ -17,7 +17,7 @@ Um container Docker baseado na imagem [futurevision/aws-s3-sync](https://hub.doc
 - ⏰ **Execução agendada** via cron
 - 🔍 **Modo dry-run** para simular operações
 - 📊 **Log verboso** para monitoramento
-- 🎯 **Foco no segundo nível** de diretórios conforme especificado
+- 🎥 **Algoritmo inteligente** que detecta e processa o último nível de diretórios
 
 ## 🏗️ Estrutura do Projeto
 
@@ -222,24 +222,49 @@ ghcr.io/marcelofmatos/aws-s3-collector-garbage:v1.0.0  # Versões específicas
 
 ## 🎅 Como Funciona o Garbage Collection
 
-O script de garbage collection opera especificamente no **segundo nível de diretórios** conforme solicitado:
+O script de garbage collection usa um **algoritmo inteligente** que processa apenas o último nível de diretórios, independente da profundidade:
 
-1. **Listagem**: Navega pela estrutura `BUCKET_PATH/*/*/` (segundo nível)
-2. **Análise**: Para cada arquivo, compara `LastModified` com `BACKUP_RETENTION_DAYS`
-3. **Remoção**: Remove arquivos mais antigos que o período de retenção
-4. **Limpeza**: Remove diretórios que ficaram vazios após a remoção dos arquivos
+1. **Descoberta**: Explora recursivamente a estrutura de diretórios para encontrar o último nível
+2. **Processamento**: Analisa apenas arquivos no último nível (onde realmente estão os dados)
+3. **Análise**: Para cada arquivo, compara `LastModified` com `BACKUP_RETENTION_DAYS`
+4. **Remoção**: Remove arquivos mais antigos que o período de retenção
+5. **Limpeza**: Remove apenas diretórios do último nível que ficaram vazios
 
-### Exemplo de Estrutura S3:
+### Exemplos de Estruturas Suportadas:
+
+#### Estrutura Simples (2 níveis):
 ```
-my-bucket/
-├── backups/
-│   ├── app1/
-│   │   ├── 2024-01-01/    ← Este nível é processado
-│   │   ├── 2024-01-02/    ← Este nível é processado
-│   │   └── 2024-01-15/    ← Este nível é processado
-│   └── app2/
-│       ├── 2024-01-01/    ← Este nível é processado
-│       └── 2024-01-10/    ← Este nível é processado
+my-bucket/backups/
+├── app1/
+│   ├── backup1.tar.gz    ← Processado
+│   └── backup2.tar.gz    ← Processado
+└── app2/
+    └── backup.sql        ← Processado
+```
+
+#### Estrutura Complexa (4 níveis):
+```
+my-bucket/backups/
+├── app1/
+│   └── 2024/
+│       └── 01/
+│           ├── backup-01.tar.gz    ← Processado (nível final)
+│           └── backup-02.tar.gz    ← Processado (nível final)
+└── app2/
+    └── databases/
+        └── daily/
+            ├── db1.sql             ← Processado (nível final)
+            └── db2.sql             ← Processado (nível final)
+```
+
+#### Estrutura Mista (níveis variáveis):
+```
+my-bucket/backups/
+├── app1/
+│   └── backup.tar.gz       ← Processado (nível final aqui)
+└── app2/
+    └── 2024/
+        └── backup.sql          ← Processado (nível final aqui)
 ```
 
 ## 📊 Logs e Monitoramento
@@ -250,13 +275,17 @@ my-bucket/
 2024-01-15 03:00:01 - Bucket: s3://my-backup-bucket
 2024-01-15 03:00:01 - Path: backups
 2024-01-15 03:00:01 - Retenção: 7 dias
+2024-01-15 03:00:01 - Parâmetros AWS: 
 2024-01-15 03:00:01 - Data de corte: 2024-01-08
-2024-01-15 03:00:02 - Processando primeiro nível: backups/app1/
-2024-01-15 03:00:02 - Processando diretório: backups/app1/2024-01-01/
-2024-01-15 03:00:02 - Objeto expirado encontrado: backups/app1/2024-01-01/backup.tar.gz
-2024-01-15 03:00:03 - Executando: aws s3 rm s3://my-backup-bucket/backups/app1/2024-01-01/backup.tar.gz
-2024-01-15 03:00:03 - Diretório vazio detectado: backups/app1/2024-01-01/ - removendo
-2024-01-15 03:00:04 - === Garbage collection finalizado ===
+2024-01-15 03:00:02 - Descobrindo estrutura de diretórios...
+2024-01-15 03:00:02 - Procurando diretórios do último nível a partir de: backups/
+2024-01-15 03:00:03 - Processando diretório final: backups/app1/2024/01/
+2024-01-15 03:00:03 - Objeto expirado encontrado: backups/app1/2024/01/backup.tar.gz (data: 2024-01-01)
+2024-01-15 03:00:04 - Removidos 1 objetos expirados de backups/app1/2024/01/
+2024-01-15 03:00:04 - Diretório vazio detectado: backups/app1/2024/01/ - removendo
+2024-01-15 03:00:05 - Processando diretório final: backups/app2/databases/
+2024-01-15 03:00:05 - Nenhum objeto expirado em backups/app2/databases/
+2024-01-15 03:00:06 - === Garbage collection finalizado ===
 ```
 
 ### Monitoramento via Docker Logs:
