@@ -5,6 +5,27 @@ Todos os mudanças notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [1.1.0] - 2024-09-18
+
+### Adicionado
+- ✨ **Variável PARAMS**: Suporte completo à variável `PARAMS` para compatibilidade total com a imagem original
+- 🔧 **Parâmetros AWS CLI**: Todos os comandos AWS CLI agora suportam parâmetros adicionais via `PARAMS`
+- 📚 **Documentação expandida**: Seção detalhada no README com exemplos de uso de `PARAMS`
+- 🐳 **GitHub Actions**: Sistema completo de CI/CD com build automático e publicação no GHCR
+- 🧪 **Workflow experimental**: Teste ARM64 separado para validação de compatibilidade
+- 📋 **Templates**: Templates para issues e pull requests
+- 🛡️ **Segurança**: Scan automático de vulnerabilidades com Trivy
+
+### Alterado
+- 🔧 **Multi-plataforma**: Temporariamente limitado a AMD64 até validação completa do ARM64
+- 📦 **Build otimizado**: Comandos RUN separados para melhor compatibilidade
+
+### Exemplos de PARAMS
+- `--profile production` - Usar profile específico do AWS
+- `--endpoint-url https://s3.custom.com` - Endpoints customizados (S3-compatible storage)
+- `--cli-read-timeout 30` - Configurações de timeout
+- `--storage-class STANDARD_IA` - Classes de armazenamento específicas
+
 ## [1.0.0] - 2024-09-18
 
 ### Adicionado
