@@ -130,37 +130,52 @@ should_keep_file() {
     
     # Aplicar políticas de retenção baseada na idade
     
+    # Sistema de retenção hierárquico: aplica a política mais restritiva primeiro
+    
     # Política diária: manter backups dos últimos N dias
     if [ $RETENTION_DAILY -gt 0 ] && [ $days_diff -le $RETENTION_DAILY ]; then
         log "Mantendo $file_key (política diária - $days_diff dias atrás)"
         return 0
     fi
     
-    # Política semanal: manter se for de uma das últimas N semanas (só um por semana)
-    if [ $RETENTION_WEEKLY -gt 0 ]; then
+    # Se passou da política diária, verifica políticas de longo prazo
+    
+    # Política semanal: manter 1 backup por semana das últimas N semanas
+    if [ $RETENTION_WEEKLY -gt 0 ] && [ $days_diff -gt $RETENTION_DAILY ]; then
         local weeks_diff=$(( days_diff / 7 ))
         if [ $weeks_diff -le $RETENTION_WEEKLY ]; then
-            # Verifica se é o primeiro backup desta semana (implementação simplificada)
-            log "Mantendo $file_key (política semanal - semana $weeks_diff)"
-            return 0
+            # Só manter se for o primeiro dia da semana (implementação simplificada)
+            local day_of_week=$(date -d "$file_date" '+%u')  # 1=Monday, 7=Sunday
+            if [ $day_of_week -eq 1 ]; then  # Manter apenas segundas-feiras
+                log "Mantendo $file_key (política semanal - semana $weeks_diff)"
+                return 0
+            fi
         fi
     fi
     
-    # Política mensal: manter se for de um dos últimos N meses (só um por mês)
-    if [ $RETENTION_MONTHLY -gt 0 ]; then
+    # Política mensal: manter 1 backup por mês dos últimos N meses  
+    if [ $RETENTION_MONTHLY -gt 0 ] && [ $days_diff -gt $(( RETENTION_WEEKLY * 7 )) ]; then
         local months_diff=$(( days_diff / 30 ))
         if [ $months_diff -le $RETENTION_MONTHLY ]; then
-            log "Mantendo $file_key (política mensal - mês $months_diff)"
-            return 0
+            # Só manter se for o primeiro dia do mês
+            local day_of_month=$(date -d "$file_date" '+%d')
+            if [ "$day_of_month" = "01" ]; then
+                log "Mantendo $file_key (política mensal - mês $months_diff)"
+                return 0
+            fi
         fi
     fi
     
-    # Política anual: manter se for de um dos últimos N anos (só um por ano)
-    if [ $RETENTION_YEARLY -gt 0 ]; then
+    # Política anual: manter 1 backup por ano dos últimos N anos
+    if [ $RETENTION_YEARLY -gt 0 ] && [ $days_diff -gt $(( RETENTION_MONTHLY * 30 )) ]; then
         local years_diff=$(( days_diff / 365 ))
         if [ $years_diff -le $RETENTION_YEARLY ]; then
-            log "Mantendo $file_key (política anual - ano $years_diff)"
-            return 0
+            # Só manter se for 1º de janeiro
+            local month_day=$(date -d "$file_date" '+%m-%d')
+            if [ "$month_day" = "01-01" ]; then
+                log "Mantendo $file_key (política anual - ano $years_diff)"
+                return 0
+            fi
         fi
     fi
     
