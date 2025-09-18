@@ -63,18 +63,46 @@ CUTOFF_TIMESTAMP=$(date -d "$CUTOFF_DATE" '+%s')
 
 log "Data de corte: $CUTOFF_DATE (timestamp: $CUTOFF_TIMESTAMP)"
 
-# Função para processar objetos de um diretório específico
-process_directory() {
+# Função para encontrar o último nível de diretórios
+find_deepest_directories() {
+    local current_prefix="$1"
+    local current_level="$2"
+    
+    # Lista subdiretorios no nivel atual
+    local subdirs=$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$current_prefix" --delimiter "/" --query 'CommonPrefixes[*].Prefix' --output text $PARAMS 2>/dev/null | tr '\t' '\n')
+    
+    if [ -z "$subdirs" ] || [ "$subdirs" = "None" ]; then
+        # Não há mais subdiretorios, este é o último nível
+        echo "$current_prefix"
+        return 0
+    fi
+    
+    # Há subdiretorios, vamos explorá-los recursivamente
+    echo "$subdirs" | while read -r subdir; do
+        if [ -n "$subdir" ] && [ "$subdir" != "None" ]; then
+            find_deepest_directories "$subdir" $((current_level + 1))
+        fi
+    done
+}
+
+# Função para processar arquivos em um diretório do último nível
+process_leaf_directory() {
     local dir_prefix="$1"
     local objects_to_delete=""
     local object_count=0
     local deleted_count=0
+    local expired_count=0
     
-    log "Processando diretório: $dir_prefix"
+    log "Processando diretório final: $dir_prefix"
     
-    # Lista todos os objetos no diretório específico
+    # Lista apenas arquivos (não diretorios) no diretorio especifico
     aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$dir_prefix" --output text --query 'Contents[*].[Key,LastModified]' $PARAMS | while IFS=$'\t' read -r key last_modified; do
         if [ -z "$key" ] || [ "$key" = "None" ]; then
+            continue
+        fi
+        
+        # Ignora se for o próprio diretório (termina com /)
+        if [ "$key" = "$dir_prefix" ]; then
             continue
         fi
         
@@ -87,39 +115,31 @@ process_directory() {
         # Verifica se o objeto é mais antigo que o período de retenção
         if [ "$object_timestamp" -lt "$CUTOFF_TIMESTAMP" ] && [ "$object_timestamp" -ne "0" ]; then
             log "Objeto expirado encontrado: $key (data: $object_date)"
+            expired_count=$((expired_count + 1))
             
-            if [ -n "$objects_to_delete" ]; then
-                objects_to_delete="$objects_to_delete "
-            fi
-            objects_to_delete="$objects_to_delete$key"
-            deleted_count=$((deleted_count + 1))
-            
-            # Remove o objeto (em lotes para eficiência)
-            if [ $deleted_count -ge 50 ]; then
-                execute_or_simulate "aws s3 rm s3://$BUCKET/$key $PARAMS"
-                objects_to_delete=""
-                deleted_count=0
-            fi
+            # Remove o objeto imediatamente
+            execute_or_simulate "aws s3 rm s3://$BUCKET/$key $PARAMS"
         fi
     done
     
-    # Remove objetos restantes
-    if [ -n "$objects_to_delete" ]; then
-        for obj in $objects_to_delete; do
-            execute_or_simulate "aws s3 rm s3://$BUCKET/$obj $PARAMS"
-        done
-    fi
-    
-    # Verifica se o diretório ficou vazio e o remove se necessário
-    remaining_objects=$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$dir_prefix" --max-items 1 --query 'Contents[0].Key' --output text $PARAMS)
-    if [ "$remaining_objects" = "None" ] || [ -z "$remaining_objects" ]; then
-        log "Diretório vazio detectado: $dir_prefix - removendo"
-        execute_or_simulate "aws s3api delete-object --bucket '$BUCKET' --key '$dir_prefix' $PARAMS"
+    if [ $expired_count -gt 0 ]; then
+        log "Removidos $expired_count objetos expirados de $dir_prefix"
+        
+        # Verifica se o diretório ficou vazio após remoção
+        remaining_objects=$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$dir_prefix" --max-items 1 --query 'Contents[0].Key' --output text $PARAMS 2>/dev/null)
+        
+        if [ "$remaining_objects" = "None" ] || [ -z "$remaining_objects" ]; then
+            log "Diretório vazio detectado: $dir_prefix - removendo"
+            # Remove o "diretório" se ele for representado como um objeto
+            execute_or_simulate "aws s3 rm s3://$BUCKET/$dir_prefix $PARAMS 2>/dev/null || true"
+        fi
+    else
+        log "Nenhum objeto expirado em $dir_prefix"
     fi
 }
 
-# Lista todos os prefixos do segundo nível (diretórios)
-log "Listando diretórios no segundo nível..."
+# Encontra e processa diretórios do último nível
+log "Descobrindo estrutura de diretórios..."
 
 # Se BUCKET_PATH estiver definido, usa como prefixo base
 if [ -n "$BUCKET_PATH" ]; then
@@ -128,23 +148,20 @@ else
     search_prefix=""
 fi
 
-# Lista todos os "diretórios" no segundo nível usando delimitador
-aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$search_prefix" --delimiter "/" --query 'CommonPrefixes[*].Prefix' --output text $PARAMS | tr '\t' '\n' | while read -r first_level_prefix; do
-    if [ -z "$first_level_prefix" ] || [ "$first_level_prefix" = "None" ]; then
-        continue
-    fi
-    
-    log "Processando primeiro nível: $first_level_prefix"
-    
-    # Para cada diretório de primeiro nível, lista os do segundo nível
-    aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$first_level_prefix" --delimiter "/" --query 'CommonPrefixes[*].Prefix' --output text $PARAMS | tr '\t' '\n' | while read -r second_level_prefix; do
-        if [ -z "$second_level_prefix" ] || [ "$second_level_prefix" = "None" ]; then
-            continue
+log "Procurando diretórios do último nível a partir de: $search_prefix"
+
+# Encontra todos os diretórios do último nível
+deepest_dirs=$(find_deepest_directories "$search_prefix" 1)
+
+if [ -z "$deepest_dirs" ]; then
+    log "Nenhum diretório encontrado para processar"
+else
+    # Processa cada diretório do último nível encontrado
+    echo "$deepest_dirs" | while read -r leaf_dir; do
+        if [ -n "$leaf_dir" ] && [ "$leaf_dir" != "None" ]; then
+            process_leaf_directory "$leaf_dir"
         fi
-        
-        # Processa este diretório de segundo nível
-        process_directory "$second_level_prefix"
     done
-done
+fi
 
 log "=== Garbage collection finalizado ==="
