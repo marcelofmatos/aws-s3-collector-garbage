@@ -1,0 +1,149 @@
+name: Release - Build and Publish
+
+on:
+  release:
+    types: [published]
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag version to build (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata (tags, labels) for Docker
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=tag
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=semver,pattern={{major}}
+          type=raw,value=latest,enable={{is_default_branch}}
+        labels: |
+          org.opencontainers.image.title=AWS S3 Garbage Collector
+          org.opencontainers.image.description=Container Docker baseado em futurevision/aws-s3-sync com funcionalidade de limpeza automática de backups antigos
+          org.opencontainers.image.vendor=Marcelo Matos
+          org.opencontainers.image.licenses=MIT
+          org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          org.opencontainers.image.documentation=https://github.com/${{ github.repository }}/blob/main/README.md
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        build-args: |
+          BACKUP_RETENTION_DAYS=7
+
+    - name: Generate release notes
+      id: release_notes
+      run: |
+        echo "## 🐳 Docker Images" >> release_notes.md
+        echo "" >> release_notes.md
+        echo "### GitHub Container Registry" >> release_notes.md
+        echo '```bash' >> release_notes.md
+        echo "# Pull da imagem" >> release_notes.md
+        echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}" >> release_notes.md
+        echo "" >> release_notes.md
+        echo "# Ou use a tag latest" >> release_notes.md
+        echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> release_notes.md
+        echo '```' >> release_notes.md
+        echo "" >> release_notes.md
+        echo "### 🚀 Exemplo de uso" >> release_notes.md
+        echo '```bash' >> release_notes.md
+        echo "# Execução única do garbage collector" >> release_notes.md
+        echo "docker run --rm \\" >> release_notes.md
+        echo "  -e KEY=your_aws_key \\" >> release_notes.md
+        echo "  -e SECRET=your_aws_secret \\" >> release_notes.md
+        echo "  -e REGION=us-east-1 \\" >> release_notes.md
+        echo "  -e BUCKET=my-backup-bucket \\" >> release_notes.md
+        echo "  -e BACKUP_RETENTION_DAYS=7 \\" >> release_notes.md
+        echo "  ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }} gc" >> release_notes.md
+        echo '```' >> release_notes.md
+        echo "" >> release_notes.md
+        echo "### 📊 Image Info" >> release_notes.md
+        echo "- **Plataformas**: linux/amd64, linux/arm64" >> release_notes.md
+        echo "- **Base**: futurevision/aws-s3-sync:latest" >> release_notes.md
+        echo "- **Tamanho**: $(docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }} --format='{{.Size}}' | numfmt --to=iec-i --suffix=B --format="%.1f" 2>/dev/null || echo 'N/A')" >> release_notes.md
+        
+        # Set output for use in other steps
+        {
+          echo 'RELEASE_NOTES<<EOF'
+          cat release_notes.md
+          echo 'EOF'
+        } >> $GITHUB_OUTPUT
+
+    - name: Update release with Docker info
+      if: github.event_name == 'release'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const release = await github.rest.repos.getRelease({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            release_id: context.payload.release.id
+          });
+          
+          const currentBody = release.data.body || '';
+          const dockerInfo = `${{ steps.release_notes.outputs.RELEASE_NOTES }}`;
+          const updatedBody = currentBody + '\n\n' + dockerInfo;
+          
+          await github.rest.repos.updateRelease({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            release_id: context.payload.release.id,
+            body: updatedBody
+          });
+
+    - name: Create summary
+      run: |
+        echo "## 🎉 Release Published Successfully!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📦 Published Images:" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Tag | Registry | Platforms |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----|----------|-----------|" >> $GITHUB_STEP_SUMMARY
+        for tag in $(echo '${{ steps.meta.outputs.tags }}' | tr ',' '\n'); do
+          echo "| \`${tag#*:}\` | [${tag}](https://github.com/${{ github.repository }}/pkgs/container/aws-s3-collector-garbage) | linux/amd64, linux/arm64 |" >> $GITHUB_STEP_SUMMARY
+        done
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🚀 Quick Start:" >> $GITHUB_STEP_SUMMARY
+        echo '```bash' >> $GITHUB_STEP_SUMMARY
+        echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }} help" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
