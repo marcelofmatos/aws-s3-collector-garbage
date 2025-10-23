@@ -278,9 +278,9 @@ process_client_backups() {
     
     # Ordena por timestamp (mais novo primeiro) e processa
     sort -nr "$temp_file" | while IFS='|' read -r timestamp object_date key; do
-        if ! should_keep_file "$object_date" "$timestamp" "$key" "$client_prefix"; then
+        if ! should_keep_file "$object_date" "$object_timestamp" "$key" "$client_prefix"; then
             log "Removendo backup expirado: $key (data: $object_date)"
-            execute_or_simulate "aws s3 rm s3://$BUCKET/$key $PARAMS"
+            execute_or_simulate "aws s3 rm \"s3://$BUCKET/$key\" $PARAMS"
         fi
     done
     
@@ -324,7 +324,7 @@ process_leaf_directory() {
             expired_count=$((expired_count + 1))
             
             # Remove o objeto imediatamente
-            execute_or_simulate "aws s3 rm s3://$BUCKET/$key $PARAMS"
+            execute_or_simulate "aws s3 rm \"s3://$BUCKET/$key\" $PARAMS"
         fi
     done
     
@@ -337,7 +337,7 @@ process_leaf_directory() {
         if [ "$remaining_objects" = "None" ] || [ -z "$remaining_objects" ]; then
             log "Diretório vazio detectado: $dir_prefix - removendo"
             # Remove o "diretório" se ele for representado como um objeto
-            execute_or_simulate "aws s3 rm s3://$BUCKET/$dir_prefix $PARAMS 2>/dev/null || true"
+            execute_or_simulate "aws s3 rm \"s3://$BUCKET/$dir_prefix\" $PARAMS 2>/dev/null || true"
         fi
     else
         log "Nenhum objeto expirado em $dir_prefix"
