@@ -8,9 +8,8 @@ ENV BACKUP_RETENTION_DAYS=$BACKUP_RETENTION_DAYS
 ENV PARAMS=
 
 # Instalação de ferramentas adicionais necessárias para o garbage collector
-# Separando em comandos menores para melhor compatibilidade multi-plataforma
-RUN apk add --no-cache coreutils findutils
-RUN apk add --no-cache grep sed bc
+# Atualiza cache e instala pacotes em um único layer
+RUN apk update && apk add --no-cache coreutils findutils grep sed bc
 
 # Copia os scripts customizados
 COPY scripts/garbage-collector.sh /usr/local/bin/garbage-collector.sh
