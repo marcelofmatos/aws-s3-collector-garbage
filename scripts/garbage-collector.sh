@@ -215,6 +215,73 @@ should_keep_file() {
     return 1
 }
 
+# Função para detectar se um nome é puramente um timestamp
+gc_is_timestamp_name() {
+    local base="${1%/}"
+    
+    # Remove extensão de arquivo para teste
+    local name_no_ext="${base%.*}"
+    
+    # Padrão YYYY-MM-DD ou YYYY-MM-DD-HHMM ou YYYY_MM_DD_HHMM
+    echo "$name_no_ext" | grep -qE '^(19|20)[0-9]{2}([-_])[01][0-9]\2[0-3][0-9](-[0-2][0-9][0-5][0-9])?$' && return 0
+    
+    # Padrão YYYYMMDD ou YYYYMMDDHHMM
+    echo "$name_no_ext" | grep -qE '^(19|20)[0-9]{8}([0-9]{4})?$' && return 0
+    
+    # Padrão epoch (10 ou 13 dígitos)
+    echo "$name_no_ext" | grep -qE '^[0-9]{10}([0-9]{3})?$' && return 0
+    
+    return 1
+}
+
+# Função para extrair prefixo de um item (arquivo ou diretório)
+gc_extract_prefix() {
+    local name="$1"
+    local type="$2"
+    local base="${name%/}"
+    local prefix=""
+    
+    # Se for diretório e o nome for puramente timestamp
+    if [ "$type" = "dir" ] && gc_is_timestamp_name "$base"; then
+        echo "__TS_DIR__"
+        return 0
+    fi
+    
+    # Tenta extrair prefixo antes de padrões de data (do mais específico ao menos específico)
+    # YYYY-MM-DD-HHMM
+    prefix=$(echo "$base" | sed -E 's/^(.+?)[._-]?(19|20)[0-9]{2}[-_][01][0-9][-_][0-3][0-9][-_][0-2][0-9][0-5][0-9].*$/\1/')
+    [ "$prefix" != "$base" ] && [ -n "$prefix" ] && { echo "$prefix" | sed 's/[._-]*$//'; return 0; }
+    
+    # YYYY-MM-DD
+    prefix=$(echo "$base" | sed -E 's/^(.+?)[._-]?(19|20)[0-9]{2}[-_][01][0-9][-_][0-3][0-9].*$/\1/')
+    [ "$prefix" != "$base" ] && [ -n "$prefix" ] && { echo "$prefix" | sed 's/[._-]*$//'; return 0; }
+    
+    # YYYYMMDDHHMM
+    prefix=$(echo "$base" | sed -E 's/^(.+?)[._-]?(19|20)[0-9]{10}.*$/\1/')
+    [ "$prefix" != "$base" ] && [ -n "$prefix" ] && { echo "$prefix" | sed 's/[._-]*$//'; return 0; }
+    
+    # YYYYMMDD
+    prefix=$(echo "$base" | sed -E 's/^(.+?)[._-]?(19|20)[0-9]{8}.*$/\1/')
+    [ "$prefix" != "$base" ] && [ -n "$prefix" ] && { echo "$prefix" | sed 's/[._-]*$//'; return 0; }
+    
+    # Epoch (10 ou 13 dígitos)
+    prefix=$(echo "$base" | sed -E 's/^(.+?)[._-]?[0-9]{10}([0-9]{3})?.*$/\1/')
+    [ "$prefix" != "$base" ] && [ -n "$prefix" ] && { echo "$prefix" | sed 's/[._-]*$//'; return 0; }
+    
+    # Se não encontrou data mas o nome é puramente timestamp
+    if gc_is_timestamp_name "$base"; then
+        if [ "$type" = "file" ]; then
+            echo "__TS_FILE__"
+        else
+            echo "__TS_DIR__"
+        fi
+        return 0
+    fi
+    
+    # Fallback: usa o nome completo como prefixo (seguro)
+    echo "$base"
+}
+
 
 # Função para encontrar o último nível de diretórios
 find_deepest_directories() {
@@ -291,43 +358,153 @@ process_client_backups() {
 # Função para processar arquivos em um diretório do último nível
 process_leaf_directory() {
     local dir_prefix="$1"
-    local objects_to_delete=""
     local object_count=0
-    local deleted_count=0
     local expired_count=0
     
     log "Processando diretório final: $dir_prefix"
     
-    # Lista apenas arquivos (não diretorios) no diretorio especifico
-    aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$dir_prefix" --output text --query 'Contents[*].[Key,LastModified]' $PARAMS | while IFS=$'\t' read -r key last_modified; do
-        if [ -z "$key" ] || [ "$key" = "None" ]; then
+    # Cria arquivos temporários para pré-processamento
+    local tmp_map=$(mktemp)
+    local tmp_grp_counts=$(mktemp)
+    local tmp_enriched=$(mktemp)
+    local tmp_skip_single=$(mktemp)
+    
+    # Garante limpeza dos temporários
+    trap 'rm -f "$tmp_map" "$tmp_grp_counts" "$tmp_enriched" "$tmp_skip_single" 2>/dev/null || true' RETURN
+    
+    # Fase 1: Mapear todos os itens (arquivos e subdiretórios) e extrair prefixos
+    log "Pré-processando itens para análise de versões..."
+    
+    # Lista TUDO no diretório (arquivos e subdiretórios)
+    aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$dir_prefix" --delimiter "/" --output json $PARAMS 2>/dev/null | \
+    awk '
+        # Processa arquivos (Contents)
+        /"Key":/ {
+            gsub(/.*"Key": "/, ""); 
+            gsub(/".*/, "");
+            if ($0 !~ /\/$/) print $0 "\tfile";
+        }
+    ' > "$tmp_map.raw" || true
+    
+    # Adiciona subdiretórios (CommonPrefixes)
+    aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$dir_prefix" --delimiter "/" --query 'CommonPrefixes[*].Prefix' --output text $PARAMS 2>/dev/null | \
+    tr '\t' '\n' | while read -r subdir; do
+        if [ -n "$subdir" ] && [ "$subdir" != "None" ]; then
+            echo "${subdir}\tdir" >> "$tmp_map.raw"
+        fi
+    done
+    
+    # Processa cada item e extrai prefixo
+    if [ ! -f "$tmp_map.raw" ] || [ ! -s "$tmp_map.raw" ]; then
+        log "Diretório vazio: $dir_prefix"
+        return 0
+    fi
+    
+    while IFS=$'\t' read -r item tipo; do
+        # Pula o próprio diretório
+        if [ "$item" = "$dir_prefix" ]; then
             continue
         fi
         
-        # Ignora se for o próprio diretório (termina com /)
-        if [ "$key" = "$dir_prefix" ]; then
+        # Extrai apenas o nome base (sem caminho)
+        local base="${item%/}"
+        base="${base##*/}"
+        
+        # Extrai prefixo usando função auxiliar
+        local prefixo=$(gc_extract_prefix "$base" "$tipo")
+        
+        # Registra: item, tipo, base, prefixo
+        echo "${item}\t${tipo}\t${base}\t${prefixo}" >> "$tmp_map"
+    done < "$tmp_map.raw"
+    
+    rm -f "$tmp_map.raw"
+    
+    # Verifica se há itens para processar
+    if [ ! -s "$tmp_map" ]; then
+        log "Nenhum item encontrado em: $dir_prefix"
+        return 0
+    fi
+    
+    # Fase 2: Contar itens por prefixo
+    awk -F'\t' '{count[$4]++} END {for (prefix in count) print prefix "\t" count[prefix]}' "$tmp_map" > "$tmp_grp_counts"
+    
+    # Fase 3: Enriquecer mapa com contagens
+    awk -F'\t' '
+        NR==FNR { counts[$1]=$2; next }
+        { print $0 "\t" counts[$4] }
+    ' "$tmp_grp_counts" "$tmp_map" > "$tmp_enriched"
+    
+    # Fase 4: Extrair itens com apenas 1 versão (para skip)
+    awk -F'\t' '$5 == 1 {print $1}' "$tmp_enriched" > "$tmp_skip_single"
+    
+    # Fase 5: Análise e logging
+    local total_groups=$(wc -l < "$tmp_grp_counts" | tr -d ' ')
+    local single_version_groups=$(awk -F'\t' '$2 == 1' "$tmp_grp_counts" | wc -l | tr -d ' ')
+    local multi_version_groups=$((total_groups - single_version_groups))
+    local ts_dir_count=$(awk -F'\t' '$2 == "dir" && $4 == "__TS_DIR__"' "$tmp_enriched" | wc -l | tr -d ' ')
+    
+    log "Pré-checagem de versões: $total_groups grupos, $single_version_groups com 1 versão, $multi_version_groups com 2+ versões, ts_dirs=$ts_dir_count"
+    
+    # Regra especial: todos os grupos têm apenas 1 versão?
+    if [ "$multi_version_groups" -eq 0 ]; then
+        log "Todos os prefixos têm 1 versão neste diretório. Pulando processamento (preservando tudo)."
+        return 0
+    fi
+    
+    # Regra da pasta raiz: exatamente 1 subpasta timestamp?
+    local SKIP_ROOT_FILES=0
+    if [ "$ts_dir_count" -eq 1 ]; then
+        SKIP_ROOT_FILES=1
+        log "Regra raiz: há exatamente 1 subpasta de versão. Arquivos do nível atual serão ignorados."
+    fi
+    
+    # Fase 6: Processar itens aplicando as novas regras
+    while IFS=$'\t' read -r item tipo base prefixo count; do
+        # Regra raiz: pular arquivos se SKIP_ROOT_FILES=1
+        if [ "$SKIP_ROOT_FILES" -eq 1 ] && [ "$tipo" = "file" ]; then
+            log "Regra raiz: pulando arquivo '$base' (há apenas 1 subpasta de versão)"
+            continue
+        fi
+        
+        # Regra de versão única: pular se count=1
+        if [ "$count" -eq 1 ]; then
+            log "Regra de versão única: pulando '$base' (prefixo '$prefixo') pois só há 1 versão"
+            continue
+        fi
+        
+        # Apenas processar arquivos (não subdiretórios)
+        if [ "$tipo" != "file" ]; then
             continue
         fi
         
         object_count=$((object_count + 1))
         
+        # Obtém metadados do S3
+        local metadata=$(aws s3api head-object --bucket "$BUCKET" --key "$item" --query 'LastModified' --output text $PARAMS 2>/dev/null || echo "")
+        
+        if [ -z "$metadata" ]; then
+            log "Aviso: não foi possível obter metadados para: $item"
+            continue
+        fi
+        
         # Converte a data do objeto para timestamp
-        object_date=$(echo "$last_modified" | cut -c1-10)
-        object_timestamp=$(date -d "$object_date" '+%s' 2>/dev/null || echo "0")
+        local object_date=$(echo "$metadata" | cut -c1-10)
+        local object_timestamp=$(date -d "$object_date" '+%s' 2>/dev/null || echo "0")
         
         # Extrai cliente para contexto
-        local client_context=$(get_client_prefix "$key")
+        local client_context=$(get_client_prefix "$item")
         
-        # Usa nova função para verificar se o arquivo deve ser mantido
-        if [ "$object_timestamp" -ne "0" ] && ! should_keep_file "$object_date" "$object_timestamp" "$key" "$client_context"; then
-            log "Objeto expirado encontrado: $key (data: $object_date)"
+        # Aplica políticas de retenção existentes (inalteradas)
+        if [ "$object_timestamp" -ne "0" ] && ! should_keep_file "$object_date" "$object_timestamp" "$item" "$client_context"; then
+            log "Objeto expirado encontrado: $item (data: $object_date)"
             expired_count=$((expired_count + 1))
             
-            # Remove o objeto imediatamente
-            execute_or_simulate "aws s3 rm \"s3://$BUCKET/$key\" $PARAMS"
+            # Remove o objeto
+            execute_or_simulate "aws s3 rm \"s3://$BUCKET/$item\" $PARAMS"
         fi
-    done
+    done < "$tmp_enriched"
     
+    # Resultado final
     if [ $expired_count -gt 0 ]; then
         log "Removidos $expired_count objetos expirados de $dir_prefix"
         
@@ -336,7 +513,6 @@ process_leaf_directory() {
         
         if [ "$remaining_objects" = "None" ] || [ -z "$remaining_objects" ]; then
             log "Diretório vazio detectado: $dir_prefix - removendo"
-            # Remove o "diretório" se ele for representado como um objeto
             execute_or_simulate "aws s3 rm \"s3://$BUCKET/$dir_prefix\" $PARAMS 2>/dev/null || true"
         fi
     else
