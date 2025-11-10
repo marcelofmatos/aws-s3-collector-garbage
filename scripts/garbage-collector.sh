@@ -467,6 +467,8 @@ process_leaf_directory() {
         fi
         
         # Regra de versão única: pular se count=1
+        # Garante que count seja numérico (default 0 se vazio)
+        count=${count:-0}
         if [ "$count" -eq 1 ]; then
             log "Regra de versão única: pulando '$base' (prefixo '$prefixo') pois só há 1 versão"
             continue
