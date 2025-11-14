@@ -9,7 +9,7 @@ ENV PARAMS=
 
 # Instalação de ferramentas adicionais necessárias para o garbage collector
 # Atualiza cache e instala pacotes em um único layer
-RUN apk update && apk add --no-cache bash coreutils findutils grep sed bc
+RUN apk update && apk add --no-cache bash tzdata coreutils findutils grep sed bc
 
 # Copia os scripts customizados
 COPY scripts/garbage-collector.sh /usr/local/bin/garbage-collector.sh
